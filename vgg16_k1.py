@@ -1,5 +1,7 @@
 # This script works only on python 3.4, with keras 1.2.2, Theano 1.0.0 and weight file
-# vgg16_weights_th_dim_ordering_th_kernels.h5
+# vgg16_weights_th_dim_ordering_th_kernels.h5 downloaded from
+# https://github.com/fchollet/deep-learning-models/releases/download/v0.1/vgg16_weights_th_dim_ordering_th_kernels.h5
+# deeplift can be found in http://goo.gl/RM8jvH
 from keras.models import Sequential
 from keras.layers.core import Flatten, Dense, Dropout
 from keras.layers.convolutional import Convolution2D, MaxPooling2D
