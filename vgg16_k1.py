@@ -1,5 +1,15 @@
 # This script works only on python 3.4, with keras 1.2.2, Theano 1.0.0 and weight file
-# vgg16_weights_th_dim_ordering_th_kernels.h5
+# vgg16_weights_th_dim_ordering_th_kernels.h5. 
+# Usage of this script:
+# 1. Install Python 3.4 (Keras 1.2.2 won't work well with Theano with py3.5+. Weird problems occur)
+# 2. For Windows, download numpy+mkl, scipy and libpython for py34 
+#    (make sure version is correct) from https://www.lfd.uci.edu/~gohlke/pythonlibs/ and install them with pip
+# 3. Download keras 1.2.2 from https://pypi.python.org/pypi/Keras/1.2.2 and theano from 
+#    https://github.com/Theano/Theano then install them by something like "python setup.py install"
+# 4. Download vgg16_weights_th_dim_ordering_th_kernels.h5
+# 5. Download this script and copy a random picture into the same directory as the weight file. 
+# 6. Run the script and enjoy!
+
 from keras.models import Sequential
 from keras.layers.core import Flatten, Dense, Dropout
 from keras.layers.convolutional import Convolution2D, MaxPooling2D
@@ -74,11 +84,6 @@ def cv_read_image_pair(image_path, reference_path, reference_default):
 			reference = cv2.filter2D(im,-1,kernel)
 			reference = cv2.filter2D(reference,-1,kernel)
 			reference = cv2.filter2D(reference,-1,kernel)
-			#sr = deepcopy(reference)
-			#sr[:,:,0] += 103.939
-			#sr[:,:,1] += 116.779
-			#sr[:,:,2] += 123.68
-			#cv2.imwrite('sr.png', sr)
 		else:
 			print("Warning: Invalid reference generator. Reference is set to None.")
 			reference = None
