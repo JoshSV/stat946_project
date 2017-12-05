@@ -29,9 +29,8 @@ import numpy as np
 from copy import deepcopy
 from collections import OrderedDict
 
-
-# two util functions
-def calc_threshold(score_matrix, method='192'):
+# 3 util functions
+def calc_threshold(score_matrix, method='32'):
 	score_array = score_matrix.flatten()
 	if (method == 'mean'):
 		return np.mean(score_array)
@@ -49,20 +48,24 @@ def calc_threshold(score_matrix, method='192'):
 def get_box_from_mask(flat_mask, original_size):
 	W_orig, H_orig = original_size
 	#print(original_size)
-      
+	
 	col_max = np.max(flat_mask, axis = 0)
 	row_max = np.max(flat_mask, axis = 1)
 	
 	col_idxs = np.where(col_max>0)
-	ymin = int(col_idxs[0][0] * H_orig / 224.0)
-	ymax = int(col_idxs[0][-1] * H_orig / 224.0)
+	xmin = col_idxs[0][0]
+	xmax = col_idxs[0][-1]
 	
 	row_idxs = np.where(row_max>0)
-	xmin = int(row_idxs[0][0] * W_orig / 224.0)
-	xmax = int(row_idxs[0][-1] * W_orig / 224.0)
+	ymin = row_idxs[0][0]
+	ymax = row_idxs[0][-1]
+	
+	xmin = int(xmin*W_orig/224)
+	xmax = int(xmax*W_orig/224)
+	ymin = int(ymin*H_orig/224)
+	ymax = int(ymax*H_orig/224) 
 	
 	bbox = (xmin, xmax, ymin, ymax)
-	print((col_idxs[0][0], col_idxs[0][-1], row_idxs[0][0], row_idxs[0][-1]), bbox)
 	return bbox
 	
 def cv_read_image_pair(image_path, reference_path, reference_default):
@@ -70,7 +73,7 @@ def cv_read_image_pair(image_path, reference_path, reference_default):
 	im = cv2.imread(image_path)
 	orig_w = im.shape[1]
 	orig_h = im.shape[0]
-	print((orig_w, orig_h))
+	#print((orig_w, orig_h))
 	im = cv2.resize(im, (224, 224)).astype(np.float32)
 	im[:,:,0] -= 103.939
 	im[:,:,1] -= 116.779
@@ -158,8 +161,7 @@ def VGG_16_Predict(data_path, reference_path=None, reference_default='blur', wei
 	for (i, (imagenetID, label, prob)) in enumerate(P[0]):
 		print("{}. {}: {:.2f}%".format(i + 1, label, prob * 100))
 	
-
-def VGG_16_DeepLIFT(data, reference, keras_model, keras_result, analytic='revealcancel'):		
+def VGG_16_DeepLIFT_model(keras_model, analytic='revealcancel'):
 	# select DeepLIFT model
 	print("\nGenerating DeepLIFT model and functions...")
 	if (analytic == 'rescale'):
@@ -187,7 +189,11 @@ def VGG_16_DeepLIFT(data, reference, keras_model, keras_result, analytic='reveal
 		deeplift_func = deeplift_model.get_target_multipliers_func(find_scores_layer_idx=0, target_layer_idx=-2)
 	else:
 		raise RuntimeError("No such analytic method: " + method)
-	print("Finished creating DeepLIFT functions.")
+	print("Finished creating DeepLIFT functions.")	
+	return((deeplift_model, deeplift_func))
+
+def VGG_16_DeepLIFT_predict(data, reference, deeplift_tuple, keras_result):		
+	deeplift_model, deeplift_func = deeplift_tuple
 	
 	# check validity of deepLIFT model
 	deeplift_prediction_func = compile_func([deeplift_model.get_layers()[0].get_activation_vars()], deeplift_model.get_layers()[-1].get_activation_vars())
@@ -200,53 +206,68 @@ def VGG_16_DeepLIFT(data, reference, keras_model, keras_result, analytic='reveal
 	task_index = np.argmax(keras_result)
 	scores = np.array(deeplift_func(task_idx=task_index, input_data_list=[data], input_references_list=[reference],
                     batch_size=32, progress_update=None))
-	score_pic = scores[0,:,:,:] * (scores[0,:,:,:] > 0) / np.max(scores[0,:,:,:]) * 255.0
-	print("Finished calculating score of " + analytic + " method.")
+	score_pic = scores[0,:,:,:] * (scores[0,:,:,:] > 0) / np.max(scores[0,:,:,:])
+	print("Finished calculating score.")
 	return score_pic.transpose((1,2,0))
 	#filename = 'deeplift_' + analytic + "_" + reference_default + "_" + data_path
 	#cv2.imwrite(filename, score_pic.transpose((1,2,0)))
 	#print("Finished calculating mask and saved as: " + filename)
 	
 
-def VGG_16_Combined(data_path, reference_path=None, reference_default='blur', weights_path=None, save_map=False):
-	# read data
-	data, reference, w, h = cv_read_image_pair(data_path, reference_path, reference_default)
-	# load Keras model and perform prediction
+def VGG_16_Combined(data_paths, reference_paths=None, reference_default='blur', weights_path=None, save_map=False):
+	# load Keras and DeepLIFT model
+	print("Loading DeepLIFT models...")
 	keras_model = VGG_16(weights_path=weights_path)
+	model_tuple_a = VGG_16_DeepLIFT_model(keras_model, analytic='rescale')
+	model_tuple_b = VGG_16_DeepLIFT_model(keras_model, analytic='guided_backprop_times_input')
 	print("Model loaded successfully. Predicting values...")
-	pr_out = keras_model.predict(data, batch_size=32)
-	P = imagenet_utils.decode_predictions(pr_out)
-	print("\nPredictions are:")
-	for (i, (imagenetID, label, prob)) in enumerate(P[0]):
-		print("{}. {}: {:.2f}%".format(i + 1, label, prob * 100))
-	# calculate contribution scores
-	a = VGG_16_DeepLIFT(data, reference, keras_model, pr_out, analytic='rescale')
-	b = VGG_16_DeepLIFT(data, reference, keras_model, pr_out, analytic='guided_backprop_times_input')
-	c = np.sqrt(a) * b
-	# save score file.
-	if (save_map):
-		filename = 'deeplift_combined' + "_" + data_path
-		cv2.imwrite(filename, c)
-		print("Finished calculating mask and saved as: " + filename)
-	# calculate the surrounding rectangle
-	kernel = np.ones((5,5),np.float32)/25
-	c = cv2.filter2D(c,-1,kernel)
-	c_threshold = calc_threshold(c, method='192')
-	# calculate and implement the box
-	xmin, xmax, ymin, ymax = get_box_from_mask(np.sum(c, axis=2) > c_threshold, (w, h))
-	im_out = cv2.imread(data_path).astype(np.float32)
-	print(im_out.shape)
-	im_out[ymin:ymax,[xmin,xmax], 0] = 255
-	im_out[ymin:ymax,[xmin,xmax], 1] = 255
-	im_out[ymin:ymax,[xmin,xmax], 2] = 0
-	im_out[[ymin,ymax],xmin:xmax, 0] = 255
-	im_out[[ymin,ymax],xmin:xmax, 1] = 255
-	im_out[[ymin,ymax],xmin:xmax, 2] = 0
-	filename = 'output_' + data_path
-	cv2.imwrite(filename, im_out)
-	print("Finished localization and result saved as: " + filename)
+	
+	for i in range(0,len(data_paths)):
+		# read data and perform prediction
+		data_path = data_paths[i]
+		if (reference_paths):
+			reference_path = reference_paths[i]
+		else:
+			reference_path = None
+		data, reference, w, h = cv_read_image_pair(data_path, reference_path, reference_default)
+		pr_out = keras_model.predict(data, batch_size=32)
+		P = imagenet_utils.decode_predictions(pr_out)
+		print("\nPredictions are:")
+		for (i, (imagenetID, label, prob)) in enumerate(P[0]):
+			print("{}. {}: {:.2f}%".format(i + 1, label, prob * 100))
+		
+		# calculate contribution scores
+		a = VGG_16_DeepLIFT_predict(data, reference, model_tuple_a, pr_out)
+		b = VGG_16_DeepLIFT_predict(data, reference, model_tuple_b, pr_out)
+		#a = cv2.imread("deeplift_combined_a_" + data_path).astype(np.float32) / 255.0
+		#b = cv2.imread("deeplift_combined_b_" + data_path).astype(np.float32) / 255.0
+		c = np.sqrt((a * a + b * b) / 2) * 255.0
+		# save score file.
+		if (save_map):
+			#filename = 'deeplift_combined_a_' + data_path
+			#cv2.imwrite(filename, a * 255.0)
+			#filename = 'deeplift_combined_b_' + data_path
+			#cv2.imwrite(filename, b * 255.0)
+			filename = 'deeplift_combined_' + data_path
+			cv2.imwrite(filename, c)
+			print("Finished calculating mask and saved as: " + filename)
+		c_threshold = calc_threshold(c, method='128')
+		
+		# calculate and implement the box
+		xmin, xmax, ymin, ymax = get_box_from_mask(np.sum(c, axis=2) > c_threshold, (w, h))
+		im_out = cv2.imread(data_path).astype(np.float32)
+		print(im_out.shape)
+		im_out[ymin:ymax,[xmin,xmax], 0] = 255
+		im_out[ymin:ymax,[xmin,xmax], 1] = 255
+		im_out[ymin:ymax,[xmin,xmax], 2] = 0
+		im_out[[ymin,ymax],xmin:xmax, 0] = 255
+		im_out[[ymin,ymax],xmin:xmax, 1] = 255
+		im_out[[ymin,ymax],xmin:xmax, 2] = 0
+		filename = 'output192_' + data_path
+		cv2.imwrite(filename, im_out)
+		print("Finished localization and result saved as: " + filename)
 	
 	
 if __name__ == "__main__":
-	VGG_16_Combined('snake.jpg', weights_path='vgg16_weights_th_dim_ordering_th_kernels.h5')
+	VGG_16_Combined(['output_ILSVRC2012_test_00000465.jpeg'], weights_path='vgg16_weights_th_dim_ordering_th_kernels.h5', save_map=True)
 	
