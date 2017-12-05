@@ -34,10 +34,9 @@ def calc_threshold(score_matrix, method='32'):
 	score_array = score_matrix.flatten()
 	if (method == 'mean'):
 		return np.mean(score_array)
-	elif (method == '80_percentage'):
+	elif (method == '90_percentage'):
 		l = len(score_array)
-		score_array = np.sort(score_array)
-		return score_array[int(l * 0.8)]
+		return score_array[int(l * 0.9)]
 	elif (method == '50_percentage'):
 		l = len(score_array)
 		score_array = np.sort(score_array)
@@ -193,9 +192,8 @@ def VGG_16_DeepLIFT_model(keras_model, analytic='revealcancel'):
 	return((deeplift_model, deeplift_func))
 
 def VGG_16_DeepLIFT_predict(data, reference, deeplift_tuple, keras_result):		
-	deeplift_model, deeplift_func = deeplift_tuple
-	
 	# check validity of deepLIFT model
+	deeplift_model, deeplift_func = deeplift_tuple
 	deeplift_prediction_func = compile_func([deeplift_model.get_layers()[0].get_activation_vars()], deeplift_model.get_layers()[-1].get_activation_vars())
 	converted_model_predictions = deeplift.util.run_function_in_batches(input_data_list=[data], func=deeplift_prediction_func, batch_size=32, progress_update=None)
 	max_deeplift_diff = np.max(np.array(converted_model_predictions)-np.array(keras_result))
@@ -232,26 +230,34 @@ def VGG_16_Combined(data_paths, reference_paths=None, reference_default='blur', 
 		data, reference, w, h = cv_read_image_pair(data_path, reference_path, reference_default)
 		pr_out = keras_model.predict(data, batch_size=32)
 		P = imagenet_utils.decode_predictions(pr_out)
-		print("\nPredictions are:")
+		print("\nPredictions for " + data_path + " are:")
 		for (i, (imagenetID, label, prob)) in enumerate(P[0]):
 			print("{}. {}: {:.2f}%".format(i + 1, label, prob * 100))
 		
+		# Gaussian smooth kernel
+		kernel = np.array([[0.003765,0.015019,0.023792,0.015019,0.003765], 
+			[0.015019,0.059912,0.094907,0.059912,0.015019],
+			[0.023792,0.094907,0.150342,0.094907,0.023792],
+			[0.015019,0.059912,0.094907,0.059912,0.015019],
+			[0.003765,0.015019,0.023792,0.015019,0.003765]])
 		# calculate contribution scores
 		a = VGG_16_DeepLIFT_predict(data, reference, model_tuple_a, pr_out)
+		a = cv2.filter2D(a, -1, kernel)
 		b = VGG_16_DeepLIFT_predict(data, reference, model_tuple_b, pr_out)
 		#a = cv2.imread("deeplift_combined_a_" + data_path).astype(np.float32) / 255.0
 		#b = cv2.imread("deeplift_combined_b_" + data_path).astype(np.float32) / 255.0
-		c = np.sqrt((a * a + b * b) / 2) * 255.0
+		c = np.power((a * a + b * b) / 2, 0.5) * 255.0
+		
 		# save score file.
 		if (save_map):
-			#filename = 'deeplift_combined_a_' + data_path
-			#cv2.imwrite(filename, a * 255.0)
-			#filename = 'deeplift_combined_b_' + data_path
-			#cv2.imwrite(filename, b * 255.0)
-			filename = 'deeplift_combined_' + data_path
+			filename = 'deeplift_combined_a_' + data_path
+			cv2.imwrite(filename, a * 255.0)
+			filename = 'deeplift_combined_b_' + data_path
+			cv2.imwrite(filename, b * 255.0)
+			filename = 'deeplift_combined_c_' + data_path
 			cv2.imwrite(filename, c)
 			print("Finished calculating mask and saved as: " + filename)
-		c_threshold = calc_threshold(c, method='128')
+		c_threshold = calc_threshold(c, method='32')
 		
 		# calculate and implement the box
 		xmin, xmax, ymin, ymax = get_box_from_mask(np.sum(c, axis=2) > c_threshold, (w, h))
@@ -263,11 +269,11 @@ def VGG_16_Combined(data_paths, reference_paths=None, reference_default='blur', 
 		im_out[[ymin,ymax],xmin:xmax, 0] = 255
 		im_out[[ymin,ymax],xmin:xmax, 1] = 255
 		im_out[[ymin,ymax],xmin:xmax, 2] = 0
-		filename = 'output192_' + data_path
+		filename = 'output32_' + data_path
 		cv2.imwrite(filename, im_out)
 		print("Finished localization and result saved as: " + filename)
 	
 	
 if __name__ == "__main__":
-	VGG_16_Combined(['output_ILSVRC2012_test_00000465.jpeg'], weights_path='vgg16_weights_th_dim_ordering_th_kernels.h5', save_map=True)
+	VGG_16_Combined(['output_ILSVRC2012_test_00000015.jpeg', 'output_ILSVRC2012_test_00000020.jpeg', 'output_ILSVRC2012_test_00000025.jpeg'], weights_path='vgg16_weights_th_dim_ordering_th_kernels.h5', save_map=True)
 	
