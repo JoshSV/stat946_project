@@ -34,13 +34,18 @@ def calc_threshold(score_matrix, method='32'):
 	score_array = score_matrix.flatten()
 	if (method == 'mean'):
 		return np.mean(score_array)
+	elif (method == '95_percentage'):
+		score_array = np.sort(score_array)
+		l = len(score_array)
+		return score_array[int(l * 0.95)]
 	elif (method == '90_percentage'):
+		score_array = np.sort(score_array)
 		l = len(score_array)
 		return score_array[int(l * 0.9)]
-	elif (method == '50_percentage'):
+	elif (method == '80_percentage'):
 		l = len(score_array)
 		score_array = np.sort(score_array)
-		return score_array[int(l * 0.5)]
+		return score_array[int(l * 0.8)]
 	else:
 		return float(method)#raise RuntimeError("No such threshold calculation method: " + method)
 	
@@ -82,7 +87,11 @@ def cv_read_image_pair(image_path, reference_path, reference_default):
 		if (reference_default == 'zero'):
 			reference = np.zeros_like(im)
 		elif (reference_default == 'blur'):
-			kernel = np.ones((5,5),np.float32)/25
+			kernel = np.array([[0.003765,0.015019,0.023792,0.015019,0.003765], 
+			[0.015019,0.059912,0.094907,0.059912,0.015019],
+			[0.023792,0.094907,0.150342,0.094907,0.023792],
+			[0.015019,0.059912,0.094907,0.059912,0.015019],
+			[0.003765,0.015019,0.023792,0.015019,0.003765]])
 			reference = cv2.filter2D(im,-1,kernel)
 			reference = cv2.filter2D(reference,-1,kernel)
 			reference = cv2.filter2D(reference,-1,kernel)
@@ -212,7 +221,7 @@ def VGG_16_DeepLIFT_predict(data, reference, deeplift_tuple, keras_result):
 	#print("Finished calculating mask and saved as: " + filename)
 	
 
-def VGG_16_Combined(data_paths, reference_paths=None, reference_default='blur', weights_path=None, save_map=False):
+def VGG_16_Combined(data_paths, reference_paths=None, reference_default='blur', weights_path=None, mask_path='vgg16_mask.jpg', save_map=False):
 	# load Keras and DeepLIFT model
 	print("Loading DeepLIFT models...")
 	keras_model = VGG_16(weights_path=weights_path)
@@ -243,10 +252,16 @@ def VGG_16_Combined(data_paths, reference_paths=None, reference_default='blur', 
 		# calculate contribution scores
 		a = VGG_16_DeepLIFT_predict(data, reference, model_tuple_a, pr_out)
 		a = cv2.filter2D(a, -1, kernel)
+		a = cv2.filter2D(a, -1, kernel)
 		b = VGG_16_DeepLIFT_predict(data, reference, model_tuple_b, pr_out)
+		b_mask = cv2.imread(mask_path).astype(np.float32) / 255.0
+		b = cv2.filter2D(b * b_mask, -1, kernel)
+		b = cv2.filter2D(b, -1, kernel)
+		b_threshold = calc_threshold(b, method='90_percentage')
+		b = (b - b_threshold) * (b > b_threshold) * 255.0 / (255 - b_threshold)
 		#a = cv2.imread("deeplift_combined_a_" + data_path).astype(np.float32) / 255.0
 		#b = cv2.imread("deeplift_combined_b_" + data_path).astype(np.float32) / 255.0
-		c = np.power((a * a + b * b) / 2, 0.5) * 255.0
+		c = np.power(2*a*b/(a+b+1e-6), 0.5) * 255.0
 		
 		# save score file.
 		if (save_map):
@@ -257,7 +272,7 @@ def VGG_16_Combined(data_paths, reference_paths=None, reference_default='blur', 
 			filename = 'deeplift_combined_c_' + data_path
 			cv2.imwrite(filename, c)
 			print("Finished calculating mask and saved as: " + filename)
-		c_threshold = calc_threshold(c, method='32')
+		c_threshold = calc_threshold(c, method='96')
 		
 		# calculate and implement the box
 		xmin, xmax, ymin, ymax = get_box_from_mask(np.sum(c, axis=2) > c_threshold, (w, h))
@@ -269,11 +284,11 @@ def VGG_16_Combined(data_paths, reference_paths=None, reference_default='blur', 
 		im_out[[ymin,ymax],xmin:xmax, 0] = 255
 		im_out[[ymin,ymax],xmin:xmax, 1] = 255
 		im_out[[ymin,ymax],xmin:xmax, 2] = 0
-		filename = 'output32_' + data_path
+		filename = 'output96_' + data_path
 		cv2.imwrite(filename, im_out)
 		print("Finished localization and result saved as: " + filename)
 	
 	
 if __name__ == "__main__":
-	VGG_16_Combined(['output_ILSVRC2012_test_00000015.jpeg', 'output_ILSVRC2012_test_00000020.jpeg', 'output_ILSVRC2012_test_00000025.jpeg'], weights_path='vgg16_weights_th_dim_ordering_th_kernels.h5', save_map=True)
+	VGG_16_Combined(['output_ILSVRC2012_test_00000022.jpeg', 'output_ILSVRC2012_test_00000036.jpeg', 'output_ILSVRC2012_test_00000039.jpeg'], weights_path='vgg16_weights_th_dim_ordering_th_kernels.h5', save_map=True)
 	
