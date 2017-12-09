@@ -265,10 +265,10 @@ def VGG_16_Combined(data_paths, reference_paths=None, reference_default='blur', 
 		
 		# save score file.
 		if (save_map):
-			filename = 'deeplift_combined_a_' + data_path
-			cv2.imwrite(filename, a * 255.0)
-			filename = 'deeplift_combined_b_' + data_path
-			cv2.imwrite(filename, b * 255.0)
+			filename = 'deeplift_combined_a_sqrt_' + data_path
+			cv2.imwrite(filename, np.sqrt(a) * 255.0)
+			filename = 'deeplift_combined_b_sqrt_' + data_path
+			cv2.imwrite(filename, np.sqrt(b) * 255.0)
 			filename = 'deeplift_combined_c_' + data_path
 			cv2.imwrite(filename, c)
 			print("Finished calculating mask and saved as: " + filename)
@@ -284,11 +284,11 @@ def VGG_16_Combined(data_paths, reference_paths=None, reference_default='blur', 
 		im_out[[ymin,ymax],xmin:xmax, 0] = 255
 		im_out[[ymin,ymax],xmin:xmax, 1] = 255
 		im_out[[ymin,ymax],xmin:xmax, 2] = 0
-		filename = 'output96_' + data_path
+		filename = 'output_' + data_path
 		cv2.imwrite(filename, im_out)
 		print("Finished localization and result saved as: " + filename)
 	
 	
 if __name__ == "__main__":
-	VGG_16_Combined(['output_ILSVRC2012_test_00000022.jpeg', 'output_ILSVRC2012_test_00000036.jpeg', 'output_ILSVRC2012_test_00000039.jpeg'], weights_path='vgg16_weights_th_dim_ordering_th_kernels.h5', save_map=True)
+	VGG_16_Combined(['output_ILSVRC2012_test_00000003.jpeg', 'output_ILSVRC2012_test_00000039.jpeg', 'output_car.jpeg'], weights_path='vgg16_weights_th_dim_ordering_th_kernels.h5', save_map=True)
 	
